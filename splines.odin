@@ -29,9 +29,6 @@ eval_linear :: proc(s: Linear, x: Float) -> Float {
     return norm_lerp(x, s.centers[i], s.values[i], s.centers[i+1], s.values[i+1])
 }
 
-// Catmull-Rom, implemented according to:
-// - https://www.youtube.com/watch?v=UCtmRJs726U
-// - https://en.wikipedia.org/wiki/Cubic_Hermite_spline
 Hermite :: struct {
     centers: []Float,
     values: []Float,
@@ -39,7 +36,51 @@ Hermite :: struct {
     extrapolate: bool,
 }
 
-build_hermite :: proc(centers, values: []Float, extrapolate: bool = true) -> Hermite {
+// A traditional Cubic Hermite spline built with the provided tangents.
+//
+// https://en.wikipedia.org/wiki/Cubic_Hermite_spline
+build_hermite :: proc(centers, values: []Float, tangents: []Float = nil, extrapolate: bool = true) -> Hermite {
+    assert(len(centers) == len(values))
+    assert(len(centers) >= 4)
+    n := len(centers)
+
+    assert(len(tangents) == n)
+
+    return Hermite{centers, values, tangents, extrapolate}
+}
+
+// Builds a Hermite spline with prev--next secant-line tangents scaled by the tension parameter.
+//
+// https://www.youtube.com/watch?v=UCtmRJs726U
+// https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Cardinal_spline
+build_cardinal :: proc(centers, values: []Float, tension: Float = 0.0, extrapolate: bool = true) -> Hermite {
+    assert(len(centers) == len(values))
+    assert(len(centers) >= 4)
+    n := len(centers)
+
+    tangents := make([]Float, n)
+    tension_ := 1.0 - tension
+
+    for i in 0..<n {
+        switch i {
+        case 0:
+            // First point.
+            tangents[i] = tension_ * (values[i+1] - values[i]) / (centers[i+1] - centers[i])
+        case n-1:
+            // Last point.
+            tangents[i] = tension_ * (values[i] - values[i-1]) / (centers[i] - centers[i-1])
+        case:
+            tangents[i] = tension_ * (values[i+1] - values[i-1]) / (centers[i+1] - centers[i-1])
+        }
+    }
+
+    return Hermite{centers, values, tangents, extrapolate}
+}
+
+// Builds a Hermite spline using three-point difference tangents.
+//
+// https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Finite_difference
+build_finite_difference :: proc(centers, values: []Float, extrapolate: bool = true) -> Hermite {
     assert(len(centers) == len(values))
     assert(len(centers) >= 4)
     n := len(centers)
@@ -55,12 +96,46 @@ build_hermite :: proc(centers, values: []Float, extrapolate: bool = true) -> Her
             // Last point.
             tangents[i] = (values[i] - values[i-1]) / (centers[i] - centers[i-1])
         case:
-            tangents[i] = (values[i+1] - values[i-1]) / (centers[i+1] - centers[i-1])
+            l := (values[i] - values[i-1]) / (centers[i] - centers[i-1])
+            r := (values[i+1] - values[i]) / (centers[i+1] - centers[i])
+            tangents[i] = (l + r) / 2.0
         }
     }
 
     return Hermite{centers, values, tangents, extrapolate}
 }
+
+// Builds a Hermite spline using parameterized Catmull-Rom distances.
+//
+// http://www.cemyuksel.com/research/catmullrom_param/catmullrom.pdf
+build_catmull_rom :: proc(centers, values: []Float, alpha: Float = 0.5, extrapolate: bool = true) -> Hermite {
+    assert(len(centers) == len(values))
+    assert(len(centers) >= 4)
+    n := len(centers)
+
+    tangents := make([]Float, n)
+
+    for i in 0..<n {
+        switch i {
+        case 0:
+            // First point.
+            tangents[i] = (values[i+1] - values[i]) / (centers[i+1] - centers[i])
+        case n-1:
+            // Last point.
+            tangents[i] = (values[i] - values[i-1]) / (centers[i] - centers[i-1])
+        case:
+            t0 := 0.0 + math.pow(abs(centers[i] - centers[i-1]), alpha)
+            t1 := t0 + math.pow(abs(centers[i+1] - centers[i]), alpha)
+            tangents[i] = (values[i+1] - values[i-1]) / (t1 - t0)
+        }
+    }
+
+    return Hermite{centers, values, tangents, extrapolate}
+}
+
+eval_cardinal          :: eval_hermite
+eval_finite_difference :: eval_hermite
+eval_catmull_rom       :: eval_hermite
 
 eval_hermite :: proc(s: Hermite, x: Float) -> Float {
     oob_res, oob := handle_oob(s.centers, s.values, x, s.extrapolate)
@@ -73,6 +148,7 @@ eval_hermite :: proc(s: Hermite, x: Float) -> Float {
     delta := s.centers[i+1] - s.centers[i]
     t := (x - s.centers[i]) / delta
 
+    // TODO: Store in build?
     h00 := 2.0 * math.pow(t, 3.0) - 3.0 * math.pow(t, 2.0) + 1.0
     h10 := math.pow(t, 3.0) - 2.0 * math.pow(t, 2.0) + t
     h01 := -2.0 * math.pow(t, 3.0) + 3.0 * math.pow(t, 2.0)
@@ -161,7 +237,7 @@ eval_akima :: proc(s: Akima, x: Float) -> Float {
 }
 
 // Interval lower index: i for i <= x < i+1.
-// Clamped to [0, n-1] inclusively.
+// Clamped to [0, n-2] inclusively.
 find_interval :: proc(points: []Float, x: Float) -> int {
     lower, upper := 0, len(points) - 1
     for lower != upper - 1 {
