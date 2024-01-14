@@ -61,17 +61,12 @@ build_cardinal :: proc(centers, values: []Float, tension: Float = 0.0, extrapola
     tangents := make([]Float, n)
     tension_ := 1.0 - tension
 
-    for i in 0..<n {
-        switch i {
-        case 0:
-            // First point.
-            tangents[i] = tension_ * (values[i+1] - values[i]) / (centers[i+1] - centers[i])
-        case n-1:
-            // Last point.
-            tangents[i] = tension_ * (values[i] - values[i-1]) / (centers[i] - centers[i-1])
-        case:
-            tangents[i] = tension_ * (values[i+1] - values[i-1]) / (centers[i+1] - centers[i-1])
-        }
+    // First and last points.
+    tangents[0] = tension_ * (values[1] - values[0]) / (centers[1] - centers[0])
+    tangents[n-1] = tension_ * (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
+
+    for i in 1..<n-1 {
+        tangents[i] = tension_ * (values[i+1] - values[i-1]) / (centers[i+1] - centers[i-1])
     }
 
     return Hermite{centers, values, tangents, extrapolate}
@@ -87,19 +82,14 @@ build_finite_difference :: proc(centers, values: []Float, extrapolate: bool = tr
 
     tangents := make([]Float, n)
 
-    for i in 0..<n {
-        switch i {
-        case 0:
-            // First point.
-            tangents[i] = (values[i+1] - values[i]) / (centers[i+1] - centers[i])
-        case n-1:
-            // Last point.
-            tangents[i] = (values[i] - values[i-1]) / (centers[i] - centers[i-1])
-        case:
-            l := (values[i] - values[i-1]) / (centers[i] - centers[i-1])
-            r := (values[i+1] - values[i]) / (centers[i+1] - centers[i])
-            tangents[i] = (l + r) / 2.0
-        }
+    // First and last points.
+    tangents[0] = (values[1] - values[0]) / (centers[1] - centers[0])
+    tangents[n-1] = (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
+
+    for i in 1..<n-1 {
+        l := (values[i] - values[i-1]) / (centers[i] - centers[i-1])
+        r := (values[i+1] - values[i]) / (centers[i+1] - centers[i])
+        tangents[i] = (l + r) / 2.0
     }
 
     return Hermite{centers, values, tangents, extrapolate}
@@ -115,19 +105,14 @@ build_catmull_rom :: proc(centers, values: []Float, alpha: Float = 0.5, extrapol
 
     tangents := make([]Float, n)
 
-    for i in 0..<n {
-        switch i {
-        case 0:
-            // First point.
-            tangents[i] = (values[i+1] - values[i]) / (centers[i+1] - centers[i])
-        case n-1:
-            // Last point.
-            tangents[i] = (values[i] - values[i-1]) / (centers[i] - centers[i-1])
-        case:
-            t0 := 0.0 + math.pow(abs(centers[i] - centers[i-1]), alpha)
-            t1 := t0 + math.pow(abs(centers[i+1] - centers[i]), alpha)
-            tangents[i] = (values[i+1] - values[i-1]) / (t1 - t0)
-        }
+    // First and last points.
+    tangents[0] = (values[1] - values[0]) / (centers[1] - centers[0])
+    tangents[n-1] = (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
+
+    for i in 1..<n-1 {
+        t0 := 0.0 + math.pow(abs(centers[i] - centers[i-1]), alpha)
+        t1 := t0 + math.pow(abs(centers[i+1] - centers[i]), alpha)
+        tangents[i] = (values[i+1] - values[i-1]) / (t1 - t0)
     }
 
     return Hermite{centers, values, tangents, extrapolate}
@@ -184,29 +169,26 @@ build_akima :: proc(centers, values: []Float, extrapolate: bool = true) -> Akima
 
     // N slopes: one per point.
     slopes := make([]Float, n)
-    for i in 0..<n {
-        switch i {
-        case 0:
-            // First interval.
-            slopes[i] = tangents[i]
-        case n-1:
-            // Last point.
-            slopes[i] = tangents[i-1]
-        case 1, (n-1)-1:
-            // Second and last intervals.
-            slopes[i] = (tangents[i-1] + tangents[i]) / 2.0
-        case:
-            mn := (
-                abs(tangents[i+1] - tangents[i]) * tangents[i-1] +
-                abs(tangents[i-1] - tangents[i-2]) * tangents[i]
-            )
-            md := abs(tangents[i+1] - tangents[i]) + abs(tangents[i-1] - tangents[i-2])
 
-            if md == 0.0 {
-                slopes[i] = (tangents[i-1] + tangents[i]) / 2.0
-            } else {
-                slopes[i] = mn / md
-            }
+    // First and last points.
+    slopes[0] = tangents[0]
+    slopes[n-1] = tangents[n-2]
+
+    // Second and last intervals.
+    slopes[1] = (tangents[0] + tangents[1]) / 2.0
+    slopes[n-2] = (tangents[n-3] + tangents[n-2]) / 2.0
+
+    for i in 2..<n-2 {
+        mn := (
+            abs(tangents[i+1] - tangents[i]) * tangents[i-1] +
+            abs(tangents[i-1] - tangents[i-2]) * tangents[i]
+        )
+        md := abs(tangents[i+1] - tangents[i]) + abs(tangents[i-1] - tangents[i-2])
+
+        if md == 0.0 {
+            slopes[i] = (tangents[i-1] + tangents[i]) / 2.0
+        } else {
+            slopes[i] = mn / md
         }
     }
 
