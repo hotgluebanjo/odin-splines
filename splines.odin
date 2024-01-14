@@ -18,7 +18,7 @@ build_linear :: proc(centers, values: []Float, extrapolate: bool = true) -> Line
     return Linear{centers, values, extrapolate}
 }
 
-eval_linear :: proc(s: Linear, x: Float) -> Float {
+eval_linear :: proc(s: ^Linear, x: Float) -> Float {
     oob_res, oob := handle_oob(s.centers, s.values, x, s.extrapolate)
     if oob {
         return oob_res
@@ -137,7 +137,7 @@ eval_cardinal          :: eval_hermite
 eval_finite_difference :: eval_hermite
 eval_catmull_rom       :: eval_hermite
 
-eval_hermite :: proc(s: Hermite, x: Float) -> Float {
+eval_hermite :: proc(s: ^Hermite, x: Float) -> Float {
     oob_res, oob := handle_oob(s.centers, s.values, x, s.extrapolate)
     if oob {
         return oob_res
@@ -219,7 +219,7 @@ build_akima :: proc(centers, values: []Float, extrapolate: bool = true) -> Akima
     }
 }
 
-eval_akima :: proc(s: Akima, x: Float) -> Float {
+eval_akima :: proc(s: ^Akima, x: Float) -> Float {
     oob_res, oob := handle_oob(s.centers, s.values, x, s.extrapolate)
     if oob {
         return oob_res
