@@ -39,7 +39,7 @@ Hermite :: struct {
 // A traditional Cubic Hermite spline built with the provided tangents.
 //
 // https://en.wikipedia.org/wiki/Cubic_Hermite_spline
-build_hermite :: proc(centers, values: []Float, tangents: []Float = nil, extrapolate: bool = true) -> Hermite {
+build_hermite :: proc(centers, values: []Float, tangents: []Float, extrapolate: bool = true) -> Hermite {
     assert(len(centers) == len(values))
     assert(len(centers) >= 4)
     n := len(centers)
