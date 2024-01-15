@@ -133,7 +133,6 @@ eval_hermite :: proc(s: ^Hermite, x: Float) -> Float {
     delta := s.centers[i+1] - s.centers[i]
     t := (x - s.centers[i]) / delta
 
-    // TODO: Store in build?
     h00 := 2.0 * math.pow(t, 3.0) - 3.0 * math.pow(t, 2.0) + 1.0
     h10 := math.pow(t, 3.0) - 2.0 * math.pow(t, 2.0) + t
     h01 := -2.0 * math.pow(t, 3.0) + 3.0 * math.pow(t, 2.0)
@@ -147,28 +146,29 @@ eval_hermite :: proc(s: ^Hermite, x: Float) -> Float {
     )
 }
 
-// Implemented according to:
-// https://en.wikipedia.org/wiki/Akima_spline
 Akima :: struct {
     centers: []Float,
     values: []Float,
-    tangents: []Float,
-    slopes: []Float,
+    coeff: [][4]Float,
     extrapolate: bool,
 }
 
+// https://en.wikipedia.org/wiki/Akima_spline
 build_akima :: proc(centers, values: []Float, extrapolate: bool = true) -> Akima {
     assert(len(centers) == len(values))
     assert(len(centers) >= 5)
     n := len(centers)
 
     tangents := make([]Float, n-1)
+    defer delete(tangents)
+
     for i in 0..<n-1 {
         tangents[i] = (values[i+1] - values[i]) / (centers[i+1] - centers[i])
     }
 
     // N slopes: one per point.
     slopes := make([]Float, n)
+    defer delete(slopes)
 
     // First and last points.
     slopes[0] = tangents[0]
@@ -192,11 +192,19 @@ build_akima :: proc(centers, values: []Float, extrapolate: bool = true) -> Akima
         }
     }
 
+    coeff := make([][4]Float, n-1)
+
+    for i in 0..<n-1 {
+        coeff[i][0] = values[i]
+        coeff[i][1] = slopes[i]
+        coeff[i][2] = (3.0 * tangents[i] - 2.0 * slopes[i] - slopes[i+1]) / (centers[i+1] - centers[i])
+        coeff[i][3] = (slopes[i] + slopes[i+1] - 2.0 * tangents[i]) / math.pow(centers[i+1] - centers[i], 2.0)
+    }
+
     return Akima{
         centers,
         values,
-        tangents,
-        slopes,
+        coeff,
         extrapolate,
     }
 }
@@ -209,10 +217,10 @@ eval_akima :: proc(s: ^Akima, x: Float) -> Float {
 
     i := find_interval(s.centers, x)
 
-    a := s.values[i]
-    b := s.slopes[i]
-    c := (3.0 * s.tangents[i] - 2.0 * s.slopes[i] - s.slopes[i+1]) / (s.centers[i+1] - s.centers[i])
-    d := (s.slopes[i] + s.slopes[i+1] - 2.0 * s.tangents[i]) / math.pow(s.centers[i+1] - s.centers[i], 2.0)
+    a := s.coeff[i][0]
+    b := s.coeff[i][1]
+    c := s.coeff[i][2]
+    d := s.coeff[i][3]
     dist := x - s.centers[i]
 
     return a + b * dist + c * math.pow(dist, 2.0) + d * math.pow(dist, 3.0)
