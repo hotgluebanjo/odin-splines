@@ -59,14 +59,14 @@ build_cardinal :: proc(centers, values: []Float, tension: Float = 0.0, extrapola
     n := len(centers)
 
     tangents := make([]Float, n)
-    tension_ := 1.0 - tension
+    tension := 1.0 - tension
 
     // First and last points.
-    tangents[0] = tension_ * (values[1] - values[0]) / (centers[1] - centers[0])
-    tangents[n-1] = tension_ * (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
+    tangents[0] = tension * (values[1] - values[0]) / (centers[1] - centers[0])
+    tangents[n-1] = tension * (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
 
     for i in 1..<n-1 {
-        tangents[i] = tension_ * (values[i+1] - values[i-1]) / (centers[i+1] - centers[i-1])
+        tangents[i] = tension * (values[i+1] - values[i-1]) / (centers[i+1] - centers[i-1])
     }
 
     return Hermite{centers, values, tangents, extrapolate}
