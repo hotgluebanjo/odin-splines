@@ -95,9 +95,9 @@ build_finite_difference :: proc(centers, values: []Float, extrapolate: bool = tr
     return Hermite{centers, values, tangents, extrapolate}
 }
 
-// Builds a Hermite spline using parameterized Catmull-Rom distances.
+// Builds a Hermite spline using non-uniform Catmull--Rom tangents.
 //
-// http://www.cemyuksel.com/research/catmullrom_param/catmullrom.pdf
+// https://splines.readthedocs.io/en/latest/euclidean/catmull-rom-properties.html
 build_catmull_rom :: proc(centers, values: []Float, alpha: Float = 0.5, extrapolate: bool = true) -> Hermite {
     assert(len(centers) == len(values))
     assert(len(centers) >= 4)
@@ -105,14 +105,16 @@ build_catmull_rom :: proc(centers, values: []Float, alpha: Float = 0.5, extrapol
 
     tangents := make([]Float, n)
 
-    // First and last points.
+    // First and last points. TODO: Natural ends.
     tangents[0] = (values[1] - values[0]) / (centers[1] - centers[0])
     tangents[n-1] = (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
 
     for i in 1..<n-1 {
-        t0 := 0.0 + math.pow(abs(centers[i] - centers[i-1]), alpha)
-        t1 := t0 + math.pow(abs(centers[i+1] - centers[i]), alpha)
-        tangents[i] = (values[i+1] - values[i-1]) / (t1 - t0)
+        delta_1 := centers[i] - centers[i-1]
+        delta0 := centers[i+1] - centers[i]
+        v_1 := (values[i] - values[i-1]) / delta_1
+        v0 := (values[i+1] - values[i]) / delta0
+        tangents[i] = (delta0 * v_1 + delta_1 * v0) / (delta0 + delta_1)
     }
 
     return Hermite{centers, values, tangents, extrapolate}
