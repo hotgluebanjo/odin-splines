@@ -208,6 +208,7 @@ End_Condition :: enum {
     Inner,
 }
 
+// An end tangent found from the last two points and/or the innermost one's derivative, `m`.
 end_tangent :: proc(x0, x1, y0, y1, m: Float, c: End_Condition) -> (res: Float) {
     switch c {
     case .Natural:
@@ -237,7 +238,8 @@ find_interval :: proc(points: []Float, x: Float) -> int {
     return lower
 }
 
-// Handle out-of-bounds `x`.
+// Handle out-of-bounds `x`. Optionally extrapolates using the end derivatives
+// `m0` and `mn_1`.
 handle_beyond_range :: proc(x0, xn_1, y0, yn_1, m0, mn_1, x: Float, extrapolate: bool) -> (res: Float, oob: bool) {
     switch {
     case x <= x0:
