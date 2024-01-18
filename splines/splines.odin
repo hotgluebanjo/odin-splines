@@ -36,46 +36,10 @@ Hermite :: struct {
     extrapolate: bool,
 }
 
-// A traditional Cubic Hermite spline built with the provided tangents.
+// A Cubic Hermite Spline built with the auto-tangents `method`.
 //
 // https://en.wikipedia.org/wiki/Cubic_Hermite_spline
-build_hermite :: proc(centers, values: []Float, tangents: []Float, extrapolate: bool = true) -> Hermite {
-    assert(len(centers) == len(values))
-    assert(len(centers) >= 4)
-    n := len(centers)
-
-    assert(len(tangents) == n)
-
-    return Hermite{centers, values, tangents, extrapolate}
-}
-
-// Builds a Hermite spline with prev--next secant-line tangents scaled by the tension parameter.
-//
-// https://www.youtube.com/watch?v=UCtmRJs726U
-// https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Cardinal_spline
-build_cardinal :: proc(centers, values: []Float, tension: Float = 0.0, extrapolate: bool = true) -> Hermite {
-    assert(len(centers) == len(values))
-    assert(len(centers) >= 4)
-    n := len(centers)
-
-    tangents := make([]Float, n)
-    tension := 1.0 - tension
-
-    // First and last points.
-    tangents[0] = tension * (values[1] - values[0]) / (centers[1] - centers[0])
-    tangents[n-1] = tension * (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
-
-    for i in 1..<n-1 {
-        tangents[i] = tension * (values[i+1] - values[i-1]) / (centers[i+1] - centers[i-1])
-    }
-
-    return Hermite{centers, values, tangents, extrapolate}
-}
-
-// Builds a Hermite spline using three-point difference tangents.
-//
-// https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Finite_difference
-build_finite_difference :: proc(centers, values: []Float, extrapolate: bool = true) -> Hermite {
+build_hermite :: proc(centers, values: []Float, method: Hermite_Method, extrapolate: bool = true) -> Hermite {
     assert(len(centers) == len(values))
     assert(len(centers) >= 4)
     n := len(centers)
@@ -86,71 +50,44 @@ build_finite_difference :: proc(centers, values: []Float, extrapolate: bool = tr
     tangents[0] = (values[1] - values[0]) / (centers[1] - centers[0])
     tangents[n-1] = (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
 
-    for i in 1..<n-1 {
-        l := (values[i] - values[i-1]) / (centers[i] - centers[i-1])
-        r := (values[i+1] - values[i]) / (centers[i+1] - centers[i])
-        tangents[i] = (l + r) / 2.0
+    switch method {
+    case .Cardinal:
+        for i in 1..<n-1 {
+            tangents[i] = (values[i+1] - values[i-1]) / (centers[i+1] - centers[i-1])
+        }
+    case .Mean_Velocity:
+        for i in 1..<n-1 {
+            v_1 := (values[i] - values[i-1]) / (centers[i] - centers[i-1])
+            v0 := (values[i+1] - values[i]) / (centers[i+1] - centers[i])
+            tangents[i] = (v_1 + v0) / 2.0
+        }
+    case .Catmull_Rom:
+        for i in 1..<n-1 {
+            delta_1 := centers[i] - centers[i-1]
+            delta0 := centers[i+1] - centers[i]
+
+            v_1 := (values[i] - values[i-1]) / delta_1
+            v0 := (values[i+1] - values[i]) / delta0
+
+            tangents[i] = (delta0 * v_1 + delta_1 * v0) / (delta0 + delta_1)
+        }
+    case .Pchip:
+        for i in 1..<n-1 {
+            delta_1 := centers[i] - centers[i-1]
+            delta0 := centers[i+1] - centers[i]
+
+            v_1 := (values[i] - values[i-1]) / delta_1
+            v0 := (values[i+1] - values[i]) / delta0
+
+            wl := 2.0 * delta0 + delta_1
+            wr := delta0 + 2.0 * delta_1
+
+            tangents[i] = (wl + wr) / (wl / v_1 + wr / v0)
+        }
     }
 
     return Hermite{centers, values, tangents, extrapolate}
 }
-
-// Builds a Hermite spline using non-uniform Catmull--Rom tangents.
-//
-// https://splines.readthedocs.io/en/latest/euclidean/catmull-rom-properties.html
-build_catmull_rom :: proc(centers, values: []Float, extrapolate: bool = true) -> Hermite {
-    assert(len(centers) == len(values))
-    assert(len(centers) >= 4)
-    n := len(centers)
-
-    tangents := make([]Float, n)
-
-    // First and last points. TODO: Natural ends.
-    tangents[0] = (values[1] - values[0]) / (centers[1] - centers[0])
-    tangents[n-1] = (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
-
-    for i in 1..<n-1 {
-        delta_1 := centers[i] - centers[i-1]
-        delta0 := centers[i+1] - centers[i]
-        v_1 := (values[i] - values[i-1]) / delta_1
-        v0 := (values[i+1] - values[i]) / delta0
-        tangents[i] = (delta0 * v_1 + delta_1 * v0) / (delta0 + delta_1)
-    }
-
-    return Hermite{centers, values, tangents, extrapolate}
-}
-
-// Builds a Hermite spline using PCHIP tangents.
-//
-// https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.PchipInterpolator.html
-build_pchip :: proc(centers, values: []Float, extrapolate: bool = true) -> Hermite {
-    assert(len(centers) == len(values))
-    assert(len(centers) >= 4)
-    n := len(centers)
-
-    tangents := make([]Float, n)
-
-    // First and last points.
-    tangents[0] = (values[1] - values[0]) / (centers[1] - centers[0])
-    tangents[n-1] = (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
-
-    for i in 1..<n-1 {
-        delta_1 := centers[i] - centers[i-1]
-        delta0 := centers[i+1] - centers[i]
-        v_1 := (values[i] - values[i-1]) / delta_1
-        v0 := (values[i+1] - values[i]) / delta0
-        wl := 2.0 * delta0 + delta_1
-        wr := delta0 + 2.0 * delta_1
-        tangents[i] = (wl + wr) / (wl / v_1 + wr / v0)
-    }
-
-    return Hermite{centers, values, tangents, extrapolate}
-}
-
-eval_cardinal          :: eval_hermite
-eval_finite_difference :: eval_hermite
-eval_catmull_rom       :: eval_hermite
-eval_pchip             :: eval_hermite
 
 eval_hermite :: proc(s: ^Hermite, x: Float) -> Float {
     oob_res, oob := handle_oob(s.centers, s.values, x, s.extrapolate)
@@ -174,6 +111,26 @@ eval_hermite :: proc(s: ^Hermite, x: Float) -> Float {
         h01 * s.values[i+1] +
         h11 * s.tangents[i+1] * delta
     )
+}
+
+Hermite_Method :: enum {
+    // Previous--next secant-line tangents. No tension parameter as it causes ripples
+    // at any value other than `0.0` in 1D.
+    //
+    // https://www.youtube.com/watch?v=UCtmRJs726U
+    // https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Cardinal_spline
+    Cardinal,
+
+    // https://en.wikipedia.org/wiki/Cubic_Hermite_spline#Finite_difference
+    Mean_Velocity,
+
+    // Correctly derived non-uniform Catmull--Rom tangents.
+    //
+    // https://splines.readthedocs.io/en/latest/euclidean/catmull-rom-properties.html
+    Catmull_Rom,
+
+    // https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.PchipInterpolator.html
+    Pchip,
 }
 
 Akima :: struct {
@@ -255,6 +212,27 @@ eval_akima :: proc(s: ^Akima, x: Float) -> Float {
 
     return a + b * dist + c * math.pow(dist, 2.0) + d * math.pow(dist, 3.0)
 }
+
+// Boundary_Condition :: enum {
+//     Natural,
+//     Parabolic,
+//     Secant,
+//     Inner,
+// }
+
+// boundary_tangent :: proc(x0, x1, y0, y1, m: Float, c: Boundary_Condition) -> (res: Float) {
+//     switch c {
+//     case .Natural:
+//         res = 3.0 * (y1 - y0) / (2.0 * (x1 - x0)) - m / 2.0
+//     case .Parabolic:
+//         res = 2.0 * (y1 - y0) / (x1 - x0) - m
+//     case .Secant:
+//         res = (y1 - y0) / (x1 - x0)
+//     case .Inner:
+//         res = m
+//     }
+//     return
+// }
 
 // Interval lower index: i for i <= x < i+1.
 // Clamped to [0, n-2] inclusively.

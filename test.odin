@@ -83,18 +83,18 @@ alexa_b := []f64{
 }
 
 main :: proc() {
-    model_r := splines.build_cardinal(p4k_r, alexa_r)
-    model_g := splines.build_cardinal(p4k_g, alexa_g)
-    model_b := splines.build_cardinal(p4k_b, alexa_b)
+    model_r := splines.build_hermite(p4k_r, alexa_r, .Cardinal)
+    model_g := splines.build_hermite(p4k_g, alexa_g, .Cardinal)
+    model_b := splines.build_hermite(p4k_b, alexa_b, .Cardinal)
 
     size := 500
     fmt.printf("LUT_1D_SIZE %d\n", size)
     fmt.printf("LUT_1D_INPUT_RANGE 0.0 1.0\n")
     for i in 0..=size {
         grid := f64(i) / f64(size)
-        r := splines.eval_cardinal(&model_r, grid)
-        g := splines.eval_cardinal(&model_g, grid)
-        b := splines.eval_cardinal(&model_b, grid)
+        r := splines.eval_hermite(&model_r, grid)
+        g := splines.eval_hermite(&model_g, grid)
+        b := splines.eval_hermite(&model_b, grid)
         fmt.printf("%0.8f %0.8f %0.8f\n", r, g, b)
     }
 }
