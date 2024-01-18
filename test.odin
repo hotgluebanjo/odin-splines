@@ -83,9 +83,9 @@ alexa_b := []f64{
 }
 
 main :: proc() {
-    model_r := splines.build_hermite(p4k_r, alexa_r, .Cardinal)
-    model_g := splines.build_hermite(p4k_g, alexa_g, .Cardinal)
-    model_b := splines.build_hermite(p4k_b, alexa_b, .Cardinal)
+    model_r := splines.build_hermite(p4k_r, alexa_r, method = .Akima)
+    model_g := splines.build_hermite(p4k_g, alexa_g, method = .Akima)
+    model_b := splines.build_hermite(p4k_b, alexa_b, method = .Akima)
 
     size := 500
     fmt.printf("LUT_1D_SIZE %d\n", size)

@@ -29,10 +29,10 @@ eval_linear :: proc(s: ^Linear, x: Float) -> Float {
     n := len(s.centers)
     beyond_val, is_beyond := handle_beyond_range(
         s.centers[0],
-        s.values[0],
-        s.end_tangents[0],
         s.centers[n-1],
+        s.values[0],
         s.values[n-1],
+        s.end_tangents[0],
         s.end_tangents[1],
         x,
         s.extrapolate,
@@ -159,10 +159,10 @@ eval_hermite :: proc(s: ^Hermite, x: Float) -> Float {
     n := len(s.centers)
     beyond_val, is_beyond := handle_beyond_range(
         s.centers[0],
-        s.values[0],
-        s.end_tangents[0],
         s.centers[n-1],
+        s.values[0],
         s.values[n-1],
+        s.end_tangents[0],
         s.end_tangents[1],
         x,
         s.extrapolate,
@@ -238,7 +238,7 @@ find_interval :: proc(points: []Float, x: Float) -> int {
 }
 
 // Handle out-of-bounds `x`.
-handle_beyond_range :: proc(x0, y0, m0, xn_1, yn_1, mn_1, x: Float, extrapolate: bool) -> (res: Float, oob: bool) {
+handle_beyond_range :: proc(x0, xn_1, y0, yn_1, m0, mn_1, x: Float, extrapolate: bool) -> (res: Float, oob: bool) {
     switch {
     case x <= x0:
         if extrapolate {
@@ -249,7 +249,7 @@ handle_beyond_range :: proc(x0, y0, m0, xn_1, yn_1, mn_1, x: Float, extrapolate:
         oob = true
     case x >= xn_1:
         if extrapolate {
-            res = (x - xn_1) * mn_1 * yn_1
+            res = (x - xn_1) * mn_1 + yn_1
         } else {
             res = yn_1
         }
