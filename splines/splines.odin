@@ -32,7 +32,7 @@ eval_linear :: proc(s: ^Linear, x: Float) -> Float {
 Hermite :: struct {
     centers: []Float,
     values: []Float,
-    tangents: []Float,
+    coeff: [][4]Float,
     extrapolate: bool,
 }
 
@@ -45,6 +45,7 @@ build_hermite :: proc(centers, values: []Float, method: Hermite_Method, extrapol
     n := len(centers)
 
     tangents := make([]Float, n)
+    defer delete(tangents)
 
     // First and last points.
     tangents[0] = (values[1] - values[0]) / (centers[1] - centers[0])
@@ -86,7 +87,17 @@ build_hermite :: proc(centers, values: []Float, method: Hermite_Method, extrapol
         }
     }
 
-    return Hermite{centers, values, tangents, extrapolate}
+    coeff := make([][4]Float, n-1)
+
+    for i in 0..<n-1 {
+        delta := centers[i+1] - centers[i]
+        coeff[i][0] = (2.0 * values[i] + tangents[i] * delta - 2.0 * values[i+1] + delta * tangents[i+1])
+        coeff[i][1] = (-3.0 * values[i] + 3.0 * values[i+1] - 2.0 * delta * tangents[i] - delta * tangents[i+1])
+        coeff[i][2] = delta * tangents[i]
+        coeff[i][3] = values[i]
+    }
+
+    return Hermite{centers, values, coeff, extrapolate}
 }
 
 eval_hermite :: proc(s: ^Hermite, x: Float) -> Float {
@@ -96,21 +107,9 @@ eval_hermite :: proc(s: ^Hermite, x: Float) -> Float {
     }
 
     i := find_interval(s.centers, x)
+    t := (x - s.centers[i]) / (s.centers[i+1] - s.centers[i])
 
-    delta := s.centers[i+1] - s.centers[i]
-    t := (x - s.centers[i]) / delta
-
-    h00 := 2.0 * math.pow(t, 3.0) - 3.0 * math.pow(t, 2.0) + 1.0
-    h10 := math.pow(t, 3.0) - 2.0 * math.pow(t, 2.0) + t
-    h01 := -2.0 * math.pow(t, 3.0) + 3.0 * math.pow(t, 2.0)
-    h11 := math.pow(t, 3.0) - math.pow(t, 2.0)
-
-    return (
-        h00 * s.values[i] +
-        h10 * s.tangents[i] * delta +
-        h01 * s.values[i+1] +
-        h11 * s.tangents[i+1] * delta
-    )
+    return s.coeff[i][0] * math.pow(t, 3.0) + s.coeff[i][1] * math.pow(t, 2.0) + s.coeff[i][2] * t + s.coeff[i][3]
 }
 
 Hermite_Method :: enum {
