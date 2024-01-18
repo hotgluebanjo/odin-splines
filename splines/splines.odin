@@ -8,48 +8,69 @@ Float :: f64
 Linear :: struct {
     centers: []Float,
     values: []Float,
+    end_tangents: [2]Float,
     extrapolate: bool,
 }
 
 build_linear :: proc(centers, values: []Float, extrapolate: bool = true) -> Linear {
     assert(len(centers) == len(values))
     assert(len(centers) >= 2)
+    n := len(centers)
 
-    return Linear{centers, values, extrapolate}
+    end_tangents := [2]Float{
+        end_tangent(centers[0], centers[1], values[0], values[1], 0.0, .Slope),
+        end_tangent(centers[n-2], centers[n-1], values[n-2], values[n-1], 0.0, .Slope),
+    }
+
+    return Linear{centers, values, end_tangents, extrapolate}
 }
 
 eval_linear :: proc(s: ^Linear, x: Float) -> Float {
-    oob_res, oob := handle_oob(s.centers, s.values, x, s.extrapolate)
-    if oob {
-        return oob_res
+    n := len(s.centers)
+    beyond_val, is_beyond := handle_beyond_range(
+        s.centers[0],
+        s.values[0],
+        s.end_tangents[0],
+        s.centers[n-1],
+        s.values[n-1],
+        s.end_tangents[1],
+        x,
+        s.extrapolate,
+    )
+
+    if is_beyond {
+        return beyond_val
     }
 
     i := find_interval(s.centers, x)
+    t := (x - s.centers[i]) / (s.centers[i+1] - s.centers[i])
 
-    return norm_lerp(x, s.centers[i], s.values[i], s.centers[i+1], s.values[i+1])
+    return math.lerp(s.values[i], s.values[i+1], t)
 }
 
 Hermite :: struct {
     centers: []Float,
     values: []Float,
     coeff: [][4]Float,
+    end_tangents: [2]Float,
     extrapolate: bool,
 }
 
 // A Cubic Hermite Spline built with the auto-tangents `method`.
 //
 // https://en.wikipedia.org/wiki/Cubic_Hermite_spline
-build_hermite :: proc(centers, values: []Float, method: Hermite_Method, extrapolate: bool = true) -> Hermite {
+build_hermite :: proc(
+    centers, values: []Float,
+    method: Hermite_Method,
+    ends: End_Condition = .Natural,
+    extrapolate: bool = true,
+) -> Hermite {
     assert(len(centers) == len(values))
     assert(len(centers) >= 4)
     n := len(centers)
 
     tangents := make([]Float, n)
     defer delete(tangents)
-
-    // First and last points.
-    tangents[0] = (values[1] - values[0]) / (centers[1] - centers[0])
-    tangents[n-1] = (values[n-1] - values[n-2]) / (centers[n-1] - centers[n-2])
 
     switch method {
     case .Cardinal:
@@ -85,7 +106,41 @@ build_hermite :: proc(centers, values: []Float, method: Hermite_Method, extrapol
 
             tangents[i] = (wl + wr) / (wl / v_1 + wr / v0)
         }
+    case .Akima:
+        weights := make([]Float, n-1)
+        defer delete(weights)
+
+        for i in 0..<n-1 {
+            weights[i] = (values[i+1] - values[i]) / (centers[i+1] - centers[i])
+        }
+
+        // Second and last intervals.
+        tangents[1] = (weights[0] + weights[1]) / 2.0
+        tangents[n-2] = (weights[n-3] + weights[n-2]) / 2.0
+
+        for i in 2..<n-2 {
+            mn := (
+                abs(weights[i+1] - weights[i]) * weights[i-1] +
+                abs(weights[i-1] - weights[i-2]) * weights[i]
+            )
+            md := abs(weights[i+1] - weights[i]) + abs(weights[i-1] - weights[i-2])
+
+            if md == 0.0 {
+                tangents[i] = (weights[i-1] + weights[i]) / 2.0
+            } else {
+                tangents[i] = mn / md
+            }
+        }
     }
+
+    // First and last points.
+    end_tangents := [2]Float{
+        end_tangent(centers[0], centers[1], values[0], values[1], tangents[1], ends),
+        end_tangent(centers[n-2], centers[n-1], values[n-2], values[n-1], tangents[n-2], ends),
+    }
+
+    tangents[0] = end_tangents[0]
+    tangents[n-1] = end_tangents[1]
 
     coeff := make([][4]Float, n-1)
 
@@ -97,13 +152,24 @@ build_hermite :: proc(centers, values: []Float, method: Hermite_Method, extrapol
         coeff[i][3] = values[i]
     }
 
-    return Hermite{centers, values, coeff, extrapolate}
+    return Hermite{centers, values, coeff, end_tangents, extrapolate}
 }
 
 eval_hermite :: proc(s: ^Hermite, x: Float) -> Float {
-    oob_res, oob := handle_oob(s.centers, s.values, x, s.extrapolate)
-    if oob {
-        return oob_res
+    n := len(s.centers)
+    beyond_val, is_beyond := handle_beyond_range(
+        s.centers[0],
+        s.values[0],
+        s.end_tangents[0],
+        s.centers[n-1],
+        s.values[n-1],
+        s.end_tangents[1],
+        x,
+        s.extrapolate,
+    )
+
+    if is_beyond {
+        return beyond_val
     }
 
     i := find_interval(s.centers, x)
@@ -130,108 +196,31 @@ Hermite_Method :: enum {
 
     // https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.PchipInterpolator.html
     Pchip,
+
+    // https://en.wikipedia.org/wiki/Akima_spline
+    Akima,
 }
 
-Akima :: struct {
-    centers: []Float,
-    values: []Float,
-    coeff: [][4]Float,
-    extrapolate: bool,
+End_Condition :: enum {
+    Natural,
+    Parabolic,
+    Slope,
+    Inner,
 }
 
-// https://en.wikipedia.org/wiki/Akima_spline
-build_akima :: proc(centers, values: []Float, extrapolate: bool = true) -> Akima {
-    assert(len(centers) == len(values))
-    assert(len(centers) >= 5)
-    n := len(centers)
-
-    tangents := make([]Float, n-1)
-    defer delete(tangents)
-
-    for i in 0..<n-1 {
-        tangents[i] = (values[i+1] - values[i]) / (centers[i+1] - centers[i])
+end_tangent :: proc(x0, x1, y0, y1, m: Float, c: End_Condition) -> (res: Float) {
+    switch c {
+    case .Natural:
+        res = 3.0 * (y1 - y0) / (2.0 * (x1 - x0)) - m / 2.0
+    case .Parabolic:
+        res = 2.0 * (y1 - y0) / (x1 - x0) - m
+    case .Slope:
+        res = (y1 - y0) / (x1 - x0)
+    case .Inner:
+        res = m
     }
-
-    // N slopes: one per point.
-    slopes := make([]Float, n)
-    defer delete(slopes)
-
-    // First and last points.
-    slopes[0] = tangents[0]
-    slopes[n-1] = tangents[n-2]
-
-    // Second and last intervals.
-    slopes[1] = (tangents[0] + tangents[1]) / 2.0
-    slopes[n-2] = (tangents[n-3] + tangents[n-2]) / 2.0
-
-    for i in 2..<n-2 {
-        mn := (
-            abs(tangents[i+1] - tangents[i]) * tangents[i-1] +
-            abs(tangents[i-1] - tangents[i-2]) * tangents[i]
-        )
-        md := abs(tangents[i+1] - tangents[i]) + abs(tangents[i-1] - tangents[i-2])
-
-        if md == 0.0 {
-            slopes[i] = (tangents[i-1] + tangents[i]) / 2.0
-        } else {
-            slopes[i] = mn / md
-        }
-    }
-
-    coeff := make([][4]Float, n-1)
-
-    for i in 0..<n-1 {
-        coeff[i][0] = values[i]
-        coeff[i][1] = slopes[i]
-        coeff[i][2] = (3.0 * tangents[i] - 2.0 * slopes[i] - slopes[i+1]) / (centers[i+1] - centers[i])
-        coeff[i][3] = (slopes[i] + slopes[i+1] - 2.0 * tangents[i]) / math.pow(centers[i+1] - centers[i], 2.0)
-    }
-
-    return Akima{
-        centers,
-        values,
-        coeff,
-        extrapolate,
-    }
+    return
 }
-
-eval_akima :: proc(s: ^Akima, x: Float) -> Float {
-    oob_res, oob := handle_oob(s.centers, s.values, x, s.extrapolate)
-    if oob {
-        return oob_res
-    }
-
-    i := find_interval(s.centers, x)
-
-    a := s.coeff[i][0]
-    b := s.coeff[i][1]
-    c := s.coeff[i][2]
-    d := s.coeff[i][3]
-    dist := x - s.centers[i]
-
-    return a + b * dist + c * math.pow(dist, 2.0) + d * math.pow(dist, 3.0)
-}
-
-// Boundary_Condition :: enum {
-//     Natural,
-//     Parabolic,
-//     Secant,
-//     Inner,
-// }
-
-// boundary_tangent :: proc(x0, x1, y0, y1, m: Float, c: Boundary_Condition) -> (res: Float) {
-//     switch c {
-//     case .Natural:
-//         res = 3.0 * (y1 - y0) / (2.0 * (x1 - x0)) - m / 2.0
-//     case .Parabolic:
-//         res = 2.0 * (y1 - y0) / (x1 - x0) - m
-//     case .Secant:
-//         res = (y1 - y0) / (x1 - x0)
-//     case .Inner:
-//         res = m
-//     }
-//     return
-// }
 
 // Interval lower index: i for i <= x < i+1.
 // Clamped to [0, n-2] inclusively.
@@ -248,32 +237,23 @@ find_interval :: proc(points: []Float, x: Float) -> int {
     return lower
 }
 
-// Lerp between `y0` and `y0` using `x` normalized from [x0, x1] to [0, 1].
-norm_lerp :: proc(x, x0, y0, x1, y1: Float) -> Float {
-    x_norm := (x - x0) / (x1 - x0)
-    return math.lerp(y0, y1, x_norm)
-}
-
 // Handle out-of-bounds `x`.
-handle_oob :: proc(centers, values: []Float, x: Float, extrapolate: bool) -> (res: Float, oob: bool) {
-    n := len(centers)
+handle_beyond_range :: proc(x0, y0, m0, xn_1, yn_1, mn_1, x: Float, extrapolate: bool) -> (res: Float, oob: bool) {
     switch {
-    case x <= centers[0]:
+    case x <= x0:
         if extrapolate {
-            res = norm_lerp(x, centers[0], values[0], centers[1], values[1])
+            res = (x - x0) * m0 + y0
         } else {
-            res = values[0]
+            res = y0
         }
         oob = true
-    case x >= centers[n-1]:
+    case x >= xn_1:
         if extrapolate {
-            res = norm_lerp(x, centers[n-2], values[n-2], centers[n-1], values[n-1])
+            res = (x - xn_1) * mn_1 * yn_1
         } else {
-            res = values[n-1]
+            res = yn_1
         }
         oob = true
-    case:
-        oob = false
     }
     return
 }
