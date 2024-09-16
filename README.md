@@ -16,5 +16,5 @@ model_linear := splines.build_linear(centers, values)
 sample_linear := splines.eval_linear(&model_linear, 0.45)
 
 model_hermite := splines.build_hermite(centers, values, method = .Akima)
-sample_hermite := splines.eval_linear(&model_hermite, 0.45)
+sample_hermite := splines.eval_hermite(&model_hermite, 0.45)
 ```
